@@ -1,20 +1,156 @@
 
-open import Data.Bool using (Bool; true; false; T?; _∧_; _∨_; not; _xor_; if_then_else_)
+open import Data.Bool using (Bool; true; false; T?; not; _xor_; if_then_else_)
 open import Data.String using (_==_; String)
-open import Data.Nat using (ℕ; _≡ᵇ_; zero; suc)
+open import Data.Nat using (ℕ; _≡ᵇ_; _<ᵇ_; zero; suc; _+_; _∸_)
+open import Function using (_∘_)
 open import Data.List using (List; []; _∷_; length)
-open import Data.Product using (_×_; _,_)
+-- open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality using (refl; _≡_)
 
 
 data Term : Set where
+
     symbol : String → Term
     boolean : Bool → Term
-    _∷_ : Term → Term → Term
-    var : ℕ → Term
+    _,_ : Term → Term → Term
+    
+open Term
 
+infixr 4 _,_
+
+data Kanren : Set where
+
+    `_ : Term → Kanren
+    _∧_ : Kanren → Kanren → Kanren
+    _∨_ : Kanren → Kanren → Kanren
+    ƛ_ : Kanren → Kanren
+    μ_ : Kanren → Kanren
+    #_ : ℕ → Kanren
+    _·_ : Kanren → Kanren → Kanren
+
+open Kanren
+
+infixr 6 _∧_
+infixr 5 _∨_
+infix 5 ƛ_
+infix 4 μ_
+infix 9 `_
+infix 9 #_
+infixl 7 _·_
+
+data Shift : Set where
+
+    Upward : ℕ → Shift
+
+    Downward : ℕ → Shift
+
+_↑_<_ : Kanren → Shift → ℕ → Kanren
+(` x) ↑ d < c = ` x
+(k ∧ k₁) ↑ d < c = (k ↑ d < c) ∧ (k₁ ↑ d < c)
+(k ∨ k₁) ↑ d < c = (k ↑ d < c) ∨ (k₁ ↑ d < c)
+(ƛ k) ↑ d < c = ƛ (k ↑ d < suc c)
+(μ k) ↑ d < c = μ (k ↑ d < suc c)
+(# x) ↑ d < c with x <ᵇ c | d
+... | false | Upward x₁ = # (x + x₁)
+... | false | Downward x₁ = # (x ∸ x₁)
+... | true | d' = # x
+(k · k₁) ↑ d < c = (k ↑ d < c) · (k₁ ↑ d < c)
+
+_↑_ : Kanren → Shift → Kanren
+x ↑ d = x ↑ d < 0
+
+_[_] : Kanren → Kanren → Kanren
+_[_] a = (_↑ Downward 1) ∘ subst 0 a ∘ (_↑ Upward 1)
+    where
+        subst : ℕ → Kanren → Kanren → Kanren
+        subst i (` x) b = ` x
+        subst i (a ∧ a₁) b = subst i a b ∧ subst i a₁ b
+        subst i (a ∨ a₁) b = subst i a b ∨ subst i a₁ b
+        subst i (ƛ a) b = ƛ subst (suc i) a (b ↑ Upward 1)
+        subst i (μ a) b = μ subst (suc i) a (b ↑ Upward 1)
+        subst i (# x) b with x ≡ᵇ i
+        ... | false = # x
+        ... | true = b
+        subst i (a · a₁) b = subst i a b · subst i a₁ b
+
+_ : (# 0) [ ƛ # 1 ] ≡ ƛ # 1
+_ = refl
+
+_ : (# 1 · # 0 · # 2) [ ƛ # 2 ] ≡ (# 0 · (ƛ # 2)) · # 1
+_ = refl
+
+data Value : Kanren → Set where
+
+    V-ƛ : ∀ {K}
+        -----------
+      → Value (ƛ K)
+
+    V-Term : ∀ {T}
+      → Value (` T)
+
+infix 4 _—→_
+
+data _—→_ : Kanren → Kanren → Set where
+
+    ξ-·₁ : ∀ {L L′ M}
+      → L —→ L′
+        ------------------
+      → L · M —→ L′ · M
+
+    ξ-·₂ : ∀ {V M M′}
+      → Value V
+      → M —→ M′
+        ------------------
+      → V · M —→ V · M′
+
+    β-ƛ : ∀ {N M}
+      → Value M
+        ---------------------------------------------------
+      → (ƛ N) · M —→ (N [ M ])
+
+    β-μ : ∀ {N}
+        -------------------
+      → (μ N) —→ N [ μ N ]
+
+
+data _—↠_ : Kanren → Kanren → Set where
+
+    _↠∎ : ∀ L
+         --------
+      → L —↠ L
+
+    _—→⟨_⟩_ : ∀ L {M N}
+      → L —→ M
+      → M —↠ N
+         --------
+      → L —↠ N
+
+infixr 3 _—↠_
+infixr 4 _—→⟨_⟩_
+
+begin↠ : Kanren → Kanren
+begin↠ b = b
+
+_ : (ƛ # 0 · # 0) · (ƛ # 0) —↠ ƛ # 0
+_ = begin↠
+      (ƛ # zero · # zero) · (ƛ # zero)
+    —→⟨ β-ƛ V-ƛ ⟩
+      (ƛ # zero) · (ƛ # zero)
+    —→⟨ β-ƛ V-ƛ ⟩
+      (ƛ # zero) ↠∎
+
+_ : (μ ƛ # 1) —→ (ƛ (μ ƛ # 1))
+_ = β-μ
+
+_ : (boolean true , boolean true , boolean true) ≡ (boolean true , (boolean true , boolean true))
+_ = refl
+
+_ : Kanren
+_ = ƛ (ƛ (# 1 · # 0))
+
+{-
 Subst : Set
 Subst = List (ℕ × Term)
 
@@ -170,3 +306,4 @@ pull (x ∷ s) = x ∷ s
 call/initial-state : ℕ → Goal → Stream
 call/initial-state 0 g = pull (g ([] , 0))
 call/initial-state n g = take n (pull (g ([] , 0)))
+-}
