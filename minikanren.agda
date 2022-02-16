@@ -1,10 +1,10 @@
 
-open import Data.Bool using (Bool; true; false; T?; not; _xor_; if_then_else_)
+open import Data.Bool using (Bool; true; false; T?; not; _xor_; if_then_else_) renaming (_∨_ to _or_)
 open import Data.String using (_==_; String)
 open import Data.Nat using (ℕ; _≡ᵇ_; _<ᵇ_; zero; suc; _+_; _∸_)
 open import Function using (_∘_)
 open import Data.List using (List; []; _∷_; length)
--- open import Data.Product using (_×_; _,_)
+open import Data.Product using (_×_) renaming (_,_ to ⟨_,_⟩)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality using (refl; _≡_)
@@ -20,6 +20,16 @@ open Term
 
 infixr 4 _,_
 
+_==ᵗ_ : Term → Term → Bool
+symbol x ==ᵗ symbol x₁ = x == x₁
+boolean x ==ᵗ boolean x₁ = not (x xor x₁)
+(a , a₁) ==ᵗ (b , b₁) with a ==ᵗ b
+... | false = false
+... | true = a₁ ==ᵗ b₁
+_ ==ᵗ _ = false
+
+infix 3 _==ᵗ_
+
 data Kanren : Set where
 
     `_ : Term → Kanren
@@ -29,9 +39,11 @@ data Kanren : Set where
     μ_ : Kanren → Kanren
     #_ : ℕ → Kanren
     _·_ : Kanren → Kanren → Kanren
+    _===_ : Kanren → Kanren → Kanren
 
 open Kanren
 
+infix 4 _===_
 infixr 6 _∧_
 infixr 5 _∨_
 infix 5 ƛ_
@@ -57,9 +69,15 @@ _↑_<_ : Kanren → Shift → ℕ → Kanren
 ... | false | Downward x₁ = # (x ∸ x₁)
 ... | true | d' = # x
 (k · k₁) ↑ d < c = (k ↑ d < c) · (k₁ ↑ d < c)
+(a === b) ↑ d < c = (a ↑ d < c) === (b ↑ d < c)
 
 _↑_ : Kanren → Shift → Kanren
 x ↑ d = x ↑ d < 0
+
+infix 3 _↑_
+
+_ : (ƛ (# 1 · # 0 · # 2) ↑ Upward 1) ≡ ƛ # 2 · # 0 · # 3
+_ = refl
 
 _[_] : Kanren → Kanren → Kanren
 _[_] a = (_↑ Downward 1) ∘ subst 0 a ∘ (_↑ Upward 1)
@@ -74,6 +92,7 @@ _[_] a = (_↑ Downward 1) ∘ subst 0 a ∘ (_↑ Upward 1)
         ... | false = # x
         ... | true = b
         subst i (a · a₁) b = subst i a b · subst i a₁ b
+        subst i (a === b) c = subst i a c === subst i b c
 
 _ : (# 0) [ ƛ # 1 ] ≡ ƛ # 1
 _ = refl
@@ -106,7 +125,6 @@ data _—→_ : Kanren → Kanren → Set where
       → V · M —→ V · M′
 
     β-ƛ : ∀ {N M}
-      → Value M
         ---------------------------------------------------
       → (ƛ N) · M —→ (N [ M ])
 
@@ -127,18 +145,21 @@ data _—↠_ : Kanren → Kanren → Set where
          --------
       → L —↠ N
 
-infixr 3 _—↠_
-infixr 4 _—→⟨_⟩_
+infix 2 _—↠_
+infixr 2 _—→⟨_⟩_
+infix 3 _↠∎
 
-begin↠ : Kanren → Kanren
-begin↠ b = b
+begin↠_ : ∀ {A B} → A —↠ B → A —↠ B
+begin↠_ b = b
+
+infix 1 begin↠_
 
 _ : (ƛ # 0 · # 0) · (ƛ # 0) —↠ ƛ # 0
 _ = begin↠
       (ƛ # zero · # zero) · (ƛ # zero)
-    —→⟨ β-ƛ V-ƛ ⟩
+    —→⟨ β-ƛ ⟩
       (ƛ # zero) · (ƛ # zero)
-    —→⟨ β-ƛ V-ƛ ⟩
+    —→⟨ β-ƛ ⟩
       (ƛ # zero) ↠∎
 
 _ : (μ ƛ # 1) —→ (ƛ (μ ƛ # 1))
@@ -149,6 +170,28 @@ _ = refl
 
 _ : Kanren
 _ = ƛ (ƛ (# 1 · # 0))
+
+Subst : Set
+Subst = List (ℕ × Kanren)
+
+occurs? : ℕ → Kanren → Bool
+occurs? n (` x) = false
+occurs? n (k ∧ k₁) = occurs? n k or occurs? n k₁
+occurs? n (k ∨ k₁) = occurs? n k or occurs? n k₁
+occurs? n (ƛ k) = occurs? n k
+occurs? n (μ k) = occurs? n k
+occurs? n (# x) = n ≡ᵇ x
+occurs? n (k · k₁) = occurs? n k or occurs? n k₁
+occurs? n (k === k₁) = occurs? n k or occurs? n k₁
+
+ext-s : ℕ → Kanren → Subst → Maybe Subst
+ext-s n k s with occurs? n k
+... | false = just (⟨ n , k ⟩ ∷ s)
+... | true = nothing
+
+unify-=== : Kanren → Subst → Maybe Subst
+unify-=== (a === b) s = {!!}
+unify-=== k s = just s
 
 {-
 Subst : Set
